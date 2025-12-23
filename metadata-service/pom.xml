@@ -11,7 +11,7 @@
 	<groupId>com.furqas</groupId>
 	<artifactId>metadata-service</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>video-service</name>
+	<name>metadata-service</name>
 	<description>Demo project for Spring Boot</description>
 	<url/>
 	<licenses>
