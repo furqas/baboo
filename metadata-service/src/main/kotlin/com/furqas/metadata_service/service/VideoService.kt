@@ -5,6 +5,7 @@ import com.furqas.metadata_service.dto.CreateVideoResponse
 import com.furqas.metadata_service.dto.GetVideoByIdResponse
 import com.furqas.metadata_service.dto.PatchVideoByIdRequest
 import com.furqas.metadata_service.dto.PatchVideoByIdResponse
+import com.furqas.metadata_service.dto.SearchVideosResponse
 import java.util.UUID
 
 interface VideoService {
@@ -13,5 +14,8 @@ interface VideoService {
     fun getVideoById(id: UUID): GetVideoByIdResponse
     fun patchVideoById(id: UUID, request: PatchVideoByIdRequest): PatchVideoByIdResponse
     fun deleteVideoById(id: UUID)
+    fun searchByAccountId(accountId: String, start: Int, end: Int): SearchVideosResponse
+    fun searchByCategory(categoryName: String, start: Int, end: Int): SearchVideosResponse
+    fun searchAll(start: Int, end: Int): SearchVideosResponse
 
 }

@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: upload-service
+api:
+  version: "api/v1"
