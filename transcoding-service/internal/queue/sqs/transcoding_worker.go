@@ -3,7 +3,8 @@ package sqs
 import (
 	"context"
 	"encoding/json"
-	"transcoding-service/internal/model"
+	"transcoding-service/internal/config"
+	"transcoding-service/internal/event"
 	"transcoding-service/internal/service"
 )
 
@@ -17,12 +18,14 @@ func NewTranscodingWorker(service *service.TranscodingService) *TranscodingWorke
 	}
 }
 
-func (w *TranscodingWorker) Handle(ctx context.Context, msg []byte) error {
-	var event model.TranscodingJob
+func (w *TranscodingWorker) Handle(ctx context.Context, msg []byte, cfg *config.Config) error {
+	var event event.TranscodingEvent
 
 	if err := json.Unmarshal(msg, &event); err != nil {
 		return err
 	}
 
-	return w.service.ProcessJob(ctx, &event)
+	model := event.ToModel()
+
+	return w.service.ProcessJob(ctx, model, cfg)
 }
