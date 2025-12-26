@@ -1,3 +1,5 @@
+server:
+  port: 8081
 spring:
   datasource:
     url: jdbc:postgresql://postgres:5432/wefood
@@ -21,3 +23,5 @@ spring:
         static: us-east-1
       credentials:
         profile: default
+      queues:
+        transcoder-producer: ""

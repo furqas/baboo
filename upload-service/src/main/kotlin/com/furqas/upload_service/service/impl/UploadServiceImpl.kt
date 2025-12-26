@@ -6,12 +6,14 @@ import com.furqas.upload_service.dto.ChunkUploadResponse
 import com.furqas.upload_service.dto.CreateVideoRequest
 import com.furqas.upload_service.dto.InitiateUploadRequest
 import com.furqas.upload_service.dto.InitiateUploadResponse
+import com.furqas.upload_service.dto.TranscodeJobEvent
 import com.furqas.upload_service.dto.UpdateVideoRequest
 import com.furqas.upload_service.exceptions.InvalidChunkException
 import com.furqas.upload_service.exceptions.InvalidVideoUploadException
 import com.furqas.upload_service.exceptions.UploadNotFoundException
 import com.furqas.upload_service.model.UploadState
 import com.furqas.upload_service.model.enums.UploadStatus
+import com.furqas.upload_service.producers.TranscoderJobProducer
 import com.furqas.upload_service.service.UploadService
 import lombok.RequiredArgsConstructor
 import org.springframework.boot.jackson.autoconfigure.JacksonProperties
@@ -26,7 +28,7 @@ import java.util.UUID
 class UploadServiceImpl(
     private val storageClient: StorageClient,
     private val metadataClient: MetadataClient,
-    private val sqsClient: SqsClient,
+    private final val producer: TranscoderJobProducer,
     private val redisTemplate: RedisTemplate<String, UploadState>,
     private final val CHUNK_SIZE: Long = 5 * 1024 * 1024 // 5MB
 ): UploadService {
@@ -90,7 +92,7 @@ class UploadServiceImpl(
         var progress = (state.uploadedChunks.toDouble() / totalChunks) * 100
 
         try {
-            if (chunkNumber < 0 || chunkNumber >= totalChunks) {
+            if (chunkNumber !in 0..<totalChunks) {
                 throw InvalidChunkException("Invalid chunk number")
             }
 
@@ -160,15 +162,13 @@ class UploadServiceImpl(
         )
 
         // transcoding queue
-        sqsClient.sendMessage(
-            queueUrl = "video-processing-queue",
-            message = Json.encodeToString(TranscodingJob(
-                videoId = state.videoId,
+        producer.createJob(
+            event = TranscodeJobEvent(
+                videoId = state.videoId.toString(),
                 s3Key = finalKey,
                 userId = state.userId,
                 fileName = state.fileName
             ))
-        )
 
         redisTemplate.delete("upload:${state.id}")
     }
