@@ -10,7 +10,7 @@ data class PatchVideoByIdRequest(
     val title: String? = null,
     val description: String? = null,
     val playlistId: String? = null,
-    val videoUrl: String? = null,
+    val videoKey: String? = null,
     val thumbnailUrl: String? = null,
     val videoCategory: VideoCategory? = null,
     val visibility: VideoVisibility? = null,

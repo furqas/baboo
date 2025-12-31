@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"transcoding-service/internal/config"
 	"transcoding-service/internal/model"
 )
@@ -14,52 +18,159 @@ type TranscodingService struct {
 	Storage    StorageService
 }
 
-const OUTPUT_DIR = "/tmp/output"
+type ResolutionConfig struct {
+	Height  int
+	Bitrate string
+	Profile string
+}
 
-func (s *TranscodingService) ProcessJob(ctx context.Context, event *model.TranscodingJob, cfg *config.Config) error {
+var resolutionMap = map[string]ResolutionConfig{
+	"1080p": {Height: 1080, Bitrate: "5000k", Profile: "high"},
+	"720p":  {Height: 720, Bitrate: "3000k", Profile: "main"},
+	"480p":  {Height: 480, Bitrate: "1500k", Profile: "main"},
+	"360p":  {Height: 360, Bitrate: "800k", Profile: "baseline"},
+}
+
+func (s *TranscodingService) ProcessJob(ctx context.Context, event *model.TranscodingJob, cfg *config.Config) (string, error) {
 
 	log.Printf("Received a process job, videoId: %s, key: %s, userId: %s", event.VideoId, event.S3Key, event.UserId)
 
 	filePath, err := s.Storage.GetRawVideo(ctx, event.S3Key, event.FileName, cfg.BucketName)
 
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	manifestPath := filepath.Join(OUTPUT_DIR, "manifest.mpd")
+	jobDir := filepath.Join(os.TempDir(), "job-"+event.VideoId)
 
-	args := []string{
-		"-y",
-		"-i", filePath,
-		"-filter_complex",
-		"[0:v]split=4[v1080][v720][v480][v360];" +
-			"[v1080]scale=-2:1080[v1080out];" +
-			"[v720]scale=-2:720[v720out];" +
-			"[v480]scale=-2:480[v480out];" +
-			"[v360]scale=-2:360[v360out]",
-		"-map", "[v1080out]", "-c:v:0", "libx264", "-b:v:0", "5000k", "-profile:v:0", "high",
-		"-map", "[v720out]", "-c:v:1", "libx264", "-b:v:1", "3000k", "-profile:v:1", "main",
-		"-map", "[v480out]", "-c:v:2", "libx264", "-b:v:2", "1500k", "-profile:v:2", "main",
-		"-map", "[v360out]", "-c:v:3", "libx264", "-b:v:3", "800k", "-profile:v:3", "baseline",
-		"-map", "0:a?", "-c:a", "aac", "-b:a", "128k",
-		"-g", "48", "-keyint_min", "48", "-sc_threshold", "0",
-		"-f", "dash", "-seg_duration", "6", "-use_template", "1", "-use_timeline", "1",
-		manifestPath,
+	err = os.MkdirAll(jobDir, os.ModePerm)
+
+	if err != nil {
+		return "", err
 	}
 
-	cmd := exec.Command("ffmpeg", args...)
-	cmd.Stdout = nil
-	cmd.Stdout = nil
+	videoProcessingPath := filepath.Join(jobDir, event.VideoId)
 
-	if err := cmd.Run(); err != nil {
-		log.Printf("Error while executing fffmpeg command: %s\n", err)
+	defer os.RemoveAll(videoProcessingPath)
+
+	err = os.MkdirAll(videoProcessingPath, os.ModePerm)
+
+	if err != nil {
+		return "", err
 	}
-	//
-	// if err != nil {
-	// 	return
-	// }
+
+	for _, args := range BuildDashCommands(filePath, videoProcessingPath, event.Resolutions) {
+		if err := runFFmpeg(args); err != nil {
+			return "", err
+		}
+	}
 
 	log.Printf("Transcoding job processed successfully for file: %s\n", filePath)
 
-	return s.Repository.Save(ctx, event)
+	return videoProcessingPath, nil
+}
+
+func BuildDashCommands(
+	input string,
+	baseOutputDir string,
+	resolutions []string,
+) [][]string {
+
+	var commands [][]string
+
+	for _, res := range resolutions {
+		cfg, ok := resolutionMap[res]
+		if !ok {
+			log.Printf("resolução ignorada: %s", res)
+			continue
+		}
+
+		outputDir := filepath.Join(baseOutputDir, res)
+		_ = os.MkdirAll(outputDir, 0755)
+
+		args := []string{
+			"-y",
+			"-i", input,
+			"-vf", fmt.Sprintf("scale=-2:%d", cfg.Height),
+
+			"-c:v", "libx264",
+			"-b:v", cfg.Bitrate,
+			"-profile:v", cfg.Profile,
+
+			"-g", "48",
+			"-keyint_min", "48",
+			"-sc_threshold", "0",
+
+			"-map", "0:v",
+			"-map", "0:a?",
+			"-c:a", "aac",
+			"-b:a", "128k",
+
+			"-f", "dash",
+			"-seg_duration", "6",
+
+			"-init_seg_name", "init.m4s",
+			"-media_seg_name", "chunk-$Number$.m4s",
+
+			filepath.Join(outputDir, "manifest.mpd"),
+		}
+
+		commands = append(commands, args)
+	}
+
+	return commands
+}
+
+func runFFmpeg(args []string) error {
+	cmd := exec.Command("ffmpeg", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (s *TranscodingService) SendChunksToStorage(ctx context.Context, path string, event *model.TranscodingJob) error {
+	for _, resolution := range event.Resolutions {
+
+		resolutionPath := filepath.Join(path, resolution)
+
+		sem := make(chan struct{}, 5)
+		var wg sync.WaitGroup
+
+		err := filepath.Walk(resolutionPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+
+			wg.Add(1)
+			sem <- struct{}{}
+
+			go func(p string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				f, err := os.Open(p)
+				if err != nil {
+					return
+				}
+				defer f.Close()
+
+				buf, err := io.ReadAll(f)
+				if err != nil {
+					return
+				}
+
+				s.Storage.UploadChunk(ctx, &buf, info.Name(), "processed", event.VideoId, resolution)
+
+			}(path)
+
+			return nil
+		})
+
+		wg.Wait()
+
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

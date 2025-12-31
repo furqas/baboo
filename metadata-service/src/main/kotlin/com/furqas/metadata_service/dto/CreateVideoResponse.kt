@@ -10,5 +10,6 @@ data class CreateVideoResponse(
     val title: String,
     val description: String,
     val visibility: VideoVisibility,
-    val status: ProcessingStatus
+    val status: ProcessingStatus,
+    val resolutions: List<String>,
 )

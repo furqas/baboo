@@ -9,4 +9,5 @@ data class CreateVideoRequest(
     val visibility: String,
     val status: String,
     val accountId: String,
+    val resolutions: List<String>
 )

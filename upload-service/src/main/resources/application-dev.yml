@@ -25,3 +25,10 @@ spring:
         profile: default
       queues:
         transcoder-producer: ""
+      s3:
+        raw-bucket-url: ""
+        processed-bucket-url: ""
+        thumbnails-bucket-url: ""
+service:
+  metadata-url: http://localhost:8080/api/v1/
+

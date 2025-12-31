@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestMethod
 import java.util.UUID
 
-@FeignClient(name = "metadata-service", url = $$"${metadata.service.url}")
+@FeignClient(name = "metadata-service", url = $$"${service.metadata-url}")
 interface MetadataClient {
 
     @RequestMapping(method = [RequestMethod.POST], value = [$$"${metadata.service.version}/videos"])

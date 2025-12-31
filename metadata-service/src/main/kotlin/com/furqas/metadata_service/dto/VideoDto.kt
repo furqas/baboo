@@ -14,7 +14,7 @@ data class VideoDto(
     var title: String,
     var description: String? = null,
     val accountId: String? = null,
-    var videoUrl: String? = null,
+    var videoKey: String? = null,
     var thumbnailUrl: String? = null,
     var videoCategory: VideoCategory? = null,
     var visibility: VideoVisibility,

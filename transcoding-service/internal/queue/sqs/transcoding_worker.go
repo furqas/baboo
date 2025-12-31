@@ -27,5 +27,13 @@ func (w *TranscodingWorker) Handle(ctx context.Context, msg []byte, cfg *config.
 
 	model := event.ToModel()
 
-	return w.service.ProcessJob(ctx, model, cfg)
+	processedPath, err := w.service.ProcessJob(ctx, model, cfg)
+
+	if err != nil {
+		return err
+	}
+
+	err = w.service.SendChunksToStorage(ctx, processedPath, model)
+
+	return err
 }

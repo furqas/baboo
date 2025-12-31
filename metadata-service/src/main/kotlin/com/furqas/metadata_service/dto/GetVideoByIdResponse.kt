@@ -13,7 +13,7 @@ data class GetVideoByIdResponse(
     val title: String,
     val description: String?,
     val accountId: String,
-    val videoUrl: String?,
+    val videoKey: String?,
     val thumbnailUrl: String?,
     val videoCategory: VideoCategory?,
     val status: ProcessingStatus,

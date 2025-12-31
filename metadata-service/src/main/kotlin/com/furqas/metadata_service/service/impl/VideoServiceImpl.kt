@@ -34,6 +34,9 @@ class VideoServiceImpl(
             if (request.status == null) {
                 throw InvalidVideoRequestException("Video status is required.")
             }
+            if(request.resolutions.isEmpty()) {
+                throw InvalidVideoRequestException("At least one resolution must be specified.")
+            }
 
             var video = Video(
                 videoId = request.videoId,
@@ -41,7 +44,8 @@ class VideoServiceImpl(
                 description = request.description,
                 visibility = request.visibility,
                 status = request.status,
-                accountId = request.accountId
+                accountId = request.accountId,
+                resolutions = request.resolutions.toMutableList(),
             )
 
             video = videoRepository.save(video)
@@ -52,7 +56,8 @@ class VideoServiceImpl(
                 title = request.title,
                 description = request.description,
                 visibility = request.visibility,
-                status = request.status
+                status = request.status,
+                resolutions = request.resolutions,
             )
         }
 
@@ -72,7 +77,7 @@ class VideoServiceImpl(
                 visibility = video.visibility,
                 accountId = video.accountId?: "",
                 onlyForAdults = video.onlyForAdults,
-                videoUrl = video.videoUrl,
+                videoKey = video.videoKey,
                 thumbnailUrl = video.thumbnailUrl,
                 videoCategory = video.videoCategory,
                 defaultLanguage = video.defaultLanguage,
@@ -105,7 +110,7 @@ class VideoServiceImpl(
             request.description?.let { video.description = it }
             request.duration?.let { video.duration = it }
             request.resolutions?.let { video.updateResolutions(it) }
-            request.videoUrl?.let { video.videoUrl = it }
+            request.videoKey?.let { video.videoKey = it }
             request.thumbnailUrl?.let { video.thumbnailUrl = it }
             request.videoCategory?.let { video.videoCategory = it }
             request.visibility?.let { video.visibility = it }
@@ -123,7 +128,7 @@ class VideoServiceImpl(
                 visibility = video.visibility,
                 accountId = video.accountId?: "",
                 onlyForAdults = video.onlyForAdults,
-                videoUrl = video.videoUrl,
+                videoKey = video.videoKey,
                 thumbnailUrl = video.thumbnailUrl,
                 videoCategory = video.videoCategory,
                 defaultLanguage = video.defaultLanguage,
@@ -215,7 +220,7 @@ class VideoServiceImpl(
                 visibility = video.visibility,
                 accountId = video.accountId?: "",
                 onlyForAdults = video.onlyForAdults,
-                videoUrl = video.videoUrl,
+                videoKey = video.videoKey,
                 thumbnailUrl = video.thumbnailUrl,
                 videoCategory = video.videoCategory,
                 defaultLanguage = video.defaultLanguage,

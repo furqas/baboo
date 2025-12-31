@@ -1,7 +1,7 @@
 package com.furqas.upload_service.service.impl
 
 import com.furqas.upload_service.client.MetadataClient
-import com.furqas.upload_service.client.StorageClient
+import com.furqas.upload_service.dto.CancelUploadResponse
 import com.furqas.upload_service.dto.ChunkUploadResponse
 import com.furqas.upload_service.dto.CreateVideoRequest
 import com.furqas.upload_service.dto.InitiateUploadRequest
@@ -14,9 +14,11 @@ import com.furqas.upload_service.exceptions.UploadNotFoundException
 import com.furqas.upload_service.model.UploadState
 import com.furqas.upload_service.model.enums.UploadStatus
 import com.furqas.upload_service.producers.TranscoderJobProducer
+import com.furqas.upload_service.service.StorageService
 import com.furqas.upload_service.service.UploadService
 import lombok.RequiredArgsConstructor
-import org.springframework.boot.jackson.autoconfigure.JacksonProperties
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.RedisTemplate
 import org.springframework.stereotype.Service
 import java.time.Duration
@@ -26,11 +28,12 @@ import java.util.UUID
 @RequiredArgsConstructor
 @Service
 class UploadServiceImpl(
-    private val storageClient: StorageClient,
+    private val storageService: StorageService,
     private val metadataClient: MetadataClient,
     private final val producer: TranscoderJobProducer,
     private val redisTemplate: RedisTemplate<String, UploadState>,
-    private final val CHUNK_SIZE: Long = 5 * 1024 * 1024 // 5MB
+    private final val CHUNK_SIZE: Long = 5 * 1024 * 1024,// 5MB
+    private val log: Logger = LoggerFactory.getLogger(UploadServiceImpl::class.java)
 ): UploadService {
 
     override fun initiateUpload(
@@ -44,6 +47,8 @@ class UploadServiceImpl(
 
         val totalChunks = (request.fileSize / CHUNK_SIZE) + if (request.fileSize % CHUNK_SIZE > 0) 1 else 0
 
+        log.info("Initiating upload: uploadId=$uploadId, videoId=$videoId, totalChunks=$totalChunks")
+
         val uploadState = UploadState(
             id = uploadId,
             videoId = videoId,
@@ -53,7 +58,8 @@ class UploadServiceImpl(
             totalChunks = totalChunks.toInt(),
             uploadedChunks = 0,
             status = UploadStatus.INITIATED,
-            createdAt = LocalDateTime.now()
+            createdAt = LocalDateTime.now(),
+            resolutions = request.resolutions.toString(),
         )
         redisTemplate.opsForValue().set(
             "upload:$uploadId",
@@ -68,6 +74,7 @@ class UploadServiceImpl(
                 description = "",
                 visibility = "PRIVATE",
                 videoId = videoId,
+                resolutions = request.resolutions
             )
         )
 
@@ -75,7 +82,8 @@ class UploadServiceImpl(
             uploadId = uploadId,
             videoId = videoId,
             chunkSize = CHUNK_SIZE,
-            totalChunks = totalChunks.toInt()
+            totalChunks = totalChunks.toInt(),
+            resolutions = request.resolutions,
         )
     }
 
@@ -98,19 +106,24 @@ class UploadServiceImpl(
 
             val chunkKey = "uploads/temp/${state.videoId}/chunk-$chunkNumber"
 
-            storageClient.upload(
+            storageService.upload(
                 bucket = "raw",
                 key = chunkKey,
-                data = data
+                data = data,
+                contentType = "application/octet-stream",
             )
 
+            val newUploadedChunks = state.uploadedChunks + 1
+
             val updatedState = state.copy(
-                uploadedChunks = state.uploadedChunks + 1,
-                status = if (state.uploadedChunks + 1 == totalChunks)
+                uploadedChunks = newUploadedChunks,
+                status = if (newUploadedChunks == state.totalChunks)
                     UploadStatus.PROCESSING
                 else
                     UploadStatus.UPLOADING
             )
+
+            log.info("Uploaded chunks: $newUploadedChunks to the of ${state.totalChunks} for uploadId=$uploadId in key=$chunkKey")
 
             redisTemplate.opsForValue().set(
                 "upload:$uploadId",
@@ -136,6 +149,37 @@ class UploadServiceImpl(
         )
     }
 
+    override fun cancelUpload(uploadId: String): CancelUploadResponse {
+        val state = redisTemplate.opsForValue().get("upload:$uploadId")
+            ?: throw UploadNotFoundException("Upload not found")
+
+        try {
+            val rangeToBeDeleted = 1..state.totalChunks
+
+            val keys = rangeToBeDeleted.map { chunkNumber ->
+                "uploads/temp/${state.videoId}/chunk-$chunkNumber"
+            }
+
+            storageService.deleteMultiple(
+                "raw",
+                keys
+            )
+        } catch (e: Exception) {
+            log.error("Error while canceling the upload: ", e)
+
+            // TODO: throw error here
+        }
+
+        redisTemplate.delete("upload:$uploadId")
+
+
+        return CancelUploadResponse(
+            id = state.id.toString(),
+            uploadedChunks = state.uploadedChunks,
+            totalChunks = state.totalChunks
+        )
+    }
+
     private fun assembleAndProcess(state: UploadState) {
         val finalKey = "raw/${state.videoId}/original.mp4"
 
@@ -143,7 +187,7 @@ class UploadServiceImpl(
             "uploads/temp/${state.videoId}/chunk-$i"
         }
 
-        storageClient.assembleChunks(
+        storageService.assembleChunks(
             sourceBucket = "raw",
             sourceKeys = chunks,
             destBucket = "raw",
@@ -151,13 +195,18 @@ class UploadServiceImpl(
         )
 
         chunks.forEach { chunkKey ->
-            storageClient.delete("raw", chunkKey)
+            storageService.delete("raw", chunkKey)
         }
+
+        val processingTimeInMinutes = Duration.between(state.createdAt, LocalDateTime.now()).toMinutes()
+
+        log.info("Assembled chunks into final video at key=$finalKey for uploadId=${state.id} in $processingTimeInMinutes minutes")
 
         metadataClient.updateVideo(
             state.videoId,
             UpdateVideoRequest(
-                status = "PROCESSED"
+                status = "PROCESSED",
+                visibility = "PUBLIC"
             )
         )
 
@@ -167,22 +216,11 @@ class UploadServiceImpl(
                 videoId = state.videoId.toString(),
                 s3Key = finalKey,
                 userId = state.userId,
-                fileName = state.fileName
+                fileName = state.fileName,
+                resolutions = state.resolutions.split(",") // turning into a list again
             ))
 
         redisTemplate.delete("upload:${state.id}")
-    }
-
-    fun completeUpload(uploadId: String): CompleteUploadResponse {
-        val stateJson = redisTemplate.opsForValue().get("upload:$uploadId")
-            ?: throw UploadNotFoundException("Upload not found")
-        val state = Json.decodeFromString<UploadState>(stateJson)
-
-        return CompleteUploadResponse(
-            videoId = state.videoId,
-            status = state.status,
-            message = "Upload completed, video is being processed"
-        )
     }
 
     private fun validateVideoFile(fileName: String, fileSize: Long, contentType: String) {

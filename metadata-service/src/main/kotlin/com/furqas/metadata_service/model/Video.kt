@@ -31,7 +31,7 @@ class Video(
 
     val accountId: String? = null,
 
-    var videoUrl: String? = null,
+    var videoKey: String? = null,
     var thumbnailUrl: String? = null,
 
     @ManyToOne(fetch = FetchType.LAZY)

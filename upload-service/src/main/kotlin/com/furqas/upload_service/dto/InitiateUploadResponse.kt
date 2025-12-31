@@ -6,5 +6,6 @@ data class InitiateUploadResponse(
     val uploadId: UUID,
     val videoId: UUID,
     val chunkSize: Long,
-    val totalChunks: Int
+    val totalChunks: Int,
+    val resolutions: List<String>,
 )

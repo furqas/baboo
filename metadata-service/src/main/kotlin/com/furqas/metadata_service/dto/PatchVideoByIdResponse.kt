@@ -14,7 +14,7 @@ data class PatchVideoByIdResponse(
     val description: String?,
     val accountId: String,
     val status: ProcessingStatus?,
-    val videoUrl: String?,
+    val videoKey: String?,
     val thumbnailUrl: String?,
     val videoCategory: VideoCategory?,
     val visibility: VideoVisibility,

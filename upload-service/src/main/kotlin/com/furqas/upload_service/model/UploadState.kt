@@ -4,7 +4,7 @@ import com.furqas.upload_service.model.enums.UploadStatus
 import java.time.LocalDateTime
 import java.util.UUID
 
-class UploadState(
+data class UploadState(
     val id: UUID,
     val videoId: UUID,
     val userId: String,
@@ -12,8 +12,7 @@ class UploadState(
     val fileSize: Long,
     val totalChunks: Int,
     val uploadedChunks: Int,
+    val resolutions: String,
     val status: UploadStatus,
     val createdAt: LocalDateTime
-) {
-
-}
+)

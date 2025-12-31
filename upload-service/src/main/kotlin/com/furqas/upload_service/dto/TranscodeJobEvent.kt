@@ -5,4 +5,5 @@ data class TranscodeJobEvent(
     val s3Key: String,
     val userId: String,
     val fileName: String,
+    val resolutions: List<String>
 )
