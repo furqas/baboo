@@ -8,14 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"transcoding-service/internal/config"
 	"transcoding-service/internal/model"
 )
 
 type TranscodingService struct {
-	Repository TranscodingRepository
-	Storage    StorageService
+	Storage StorageService
 }
 
 type ResolutionConfig struct {
@@ -35,39 +35,38 @@ func (s *TranscodingService) ProcessJob(ctx context.Context, event *model.Transc
 
 	log.Printf("Received a process job, videoId: %s, key: %s, userId: %s", event.VideoId, event.S3Key, event.UserId)
 
-	filePath, err := s.Storage.GetRawVideo(ctx, event.S3Key, event.FileName, cfg.BucketName)
-
+	filePath, err := s.Storage.GetRawVideo(ctx, event.S3Key, event.FileName, cfg.RawBucketName)
 	if err != nil {
 		return "", err
 	}
 
-	jobDir := filepath.Join(os.TempDir(), "job-"+event.VideoId)
+	jobDir := filepath.Join(os.TempDir(), "transcoding-jobs", event.VideoId)
 
-	err = os.MkdirAll(jobDir, os.ModePerm)
-
+	log.Printf("Creating job directory: %s", jobDir)
+	err = os.MkdirAll(jobDir, 0755)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create job directory: %w", err)
 	}
 
-	videoProcessingPath := filepath.Join(jobDir, event.VideoId)
 
-	defer os.RemoveAll(videoProcessingPath)
-
-	err = os.MkdirAll(videoProcessingPath, os.ModePerm)
-
-	if err != nil {
-		return "", err
+	for _, res := range event.Resolutions {
+		resolutionDir := filepath.Join(jobDir, strings.Trim(res, "[]"))
+		log.Printf("Creating resolution directory: %s", resolutionDir)
+		err = os.MkdirAll(resolutionDir, 0755)
+		if err != nil {
+			return "", fmt.Errorf("failed to create resolution directory %s: %w", resolutionDir, err)
+		}
 	}
 
-	for _, args := range BuildDashCommands(filePath, videoProcessingPath, event.Resolutions) {
+	for _, args := range BuildDashCommands(filePath, jobDir, event.Resolutions) {
 		if err := runFFmpeg(args); err != nil {
-			return "", err
+			return "", fmt.Errorf("ffmpeg failed: %w", err)
 		}
 	}
 
 	log.Printf("Transcoding job processed successfully for file: %s\n", filePath)
 
-	return videoProcessingPath, nil
+	return jobDir, nil
 }
 
 func BuildDashCommands(
@@ -79,14 +78,15 @@ func BuildDashCommands(
 	var commands [][]string
 
 	for _, res := range resolutions {
+		res = strings.Trim(res, "[]")
+
 		cfg, ok := resolutionMap[res]
 		if !ok {
-			log.Printf("resolução ignorada: %s", res)
+			log.Printf("Resolução ignorada: %s", res)
 			continue
 		}
 
 		outputDir := filepath.Join(baseOutputDir, res)
-		_ = os.MkdirAll(outputDir, 0755)
 
 		args := []string{
 			"-y",
@@ -115,6 +115,7 @@ func BuildDashCommands(
 			filepath.Join(outputDir, "manifest.mpd"),
 		}
 
+		log.Printf("Built FFmpeg command for resolution %s: output=%s", res, outputDir)
 		commands = append(commands, args)
 	}
 
@@ -123,9 +124,16 @@ func BuildDashCommands(
 
 func runFFmpeg(args []string) error {
 	cmd := exec.Command("ffmpeg", args...)
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg command failed: %w", err)
+	}
+
+	log.Printf("FFmpeg completed successfully")
+	return nil
 }
 
 func (s *TranscodingService) SendChunksToStorage(ctx context.Context, path string, event *model.TranscodingJob) error {

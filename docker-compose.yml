@@ -1,0 +1,35 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack-data:/var/lib/localstack
+  postgres:
+    image: postgres:latest
+    container_name: baboo-postgres
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: baboo 
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+  redis:
+    image: redis:latest
+    container_name: baboo-redis
+    restart: always
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/usr/local/etc/redis
+volumes:
+ localstack-data:
+ postgres-data:
+ redis-data:

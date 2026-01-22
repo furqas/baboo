@@ -3,4 +3,4 @@ spring:
     name: metadata-service
 
 api:
-  version: "/api/v1/"
+  version: "/api/v1"

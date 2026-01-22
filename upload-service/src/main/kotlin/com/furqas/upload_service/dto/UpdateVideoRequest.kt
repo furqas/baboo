@@ -6,7 +6,7 @@ data class UpdateVideoRequest(
     val title: String? = null,
     val description: String? = null,
     val playlistId: String? = null,
-    val videoUrl: String? = null,
+    val videoKey: String? = null,
     val thumbnailUrl: String? = null,
     val videoCategory: String? = null,
     val visibility: String? = null,
@@ -16,6 +16,5 @@ data class UpdateVideoRequest(
     val duration: Long? = null,
     val resolutions: List<String>? = null,
     val scheduledPublishAt: LocalDateTime? = null,
-    val state: String? = null,
     val status: String? = null,
 )

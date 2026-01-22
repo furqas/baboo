@@ -65,7 +65,7 @@ class VideoController(
         return ResponseEntity.noContent().build()
     }
 
-    @GetMapping()
+    @GetMapping
     fun search(
         @RequestParam(name = "accountId", required = false) accountId: String?,
         @RequestParam(name = "category", required = false) category: String?,

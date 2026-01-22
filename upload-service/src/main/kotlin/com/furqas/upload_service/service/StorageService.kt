@@ -10,7 +10,6 @@ interface StorageService {
     )
 
     fun assembleChunks(
-        sourceBucket: String,
         sourceKeys: List<String>,
         destBucket: String,
         destKey: String

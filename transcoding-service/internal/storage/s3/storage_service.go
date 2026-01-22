@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -35,7 +36,7 @@ func (s *StorageService) UploadChunk(
 
 	reader := bytes.NewReader(*data)
 
-	objectKey := "processed/" + videoId + "/" + resolution
+	objectKey := fmt.Sprintf("processed/%s/%s/%s", videoId, resolution, fileName)
 
 	_, err := s.c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),

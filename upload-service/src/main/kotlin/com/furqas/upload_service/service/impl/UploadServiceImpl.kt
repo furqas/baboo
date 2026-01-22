@@ -1,6 +1,5 @@
 package com.furqas.upload_service.service.impl
 
-import com.furqas.upload_service.client.MetadataClient
 import com.furqas.upload_service.dto.CancelUploadResponse
 import com.furqas.upload_service.dto.ChunkUploadResponse
 import com.furqas.upload_service.dto.CreateVideoRequest
@@ -14,6 +13,7 @@ import com.furqas.upload_service.exceptions.UploadNotFoundException
 import com.furqas.upload_service.model.UploadState
 import com.furqas.upload_service.model.enums.UploadStatus
 import com.furqas.upload_service.producers.TranscoderJobProducer
+import com.furqas.upload_service.service.MetadataClientService
 import com.furqas.upload_service.service.StorageService
 import com.furqas.upload_service.service.UploadService
 import lombok.RequiredArgsConstructor
@@ -28,12 +28,12 @@ import java.util.UUID
 @RequiredArgsConstructor
 @Service
 class UploadServiceImpl(
-    private val storageService: StorageService,
-    private val metadataClient: MetadataClient,
+    private final val storageService: StorageService,
+    private final val metadataClient: MetadataClientService,
     private final val producer: TranscoderJobProducer,
-    private val redisTemplate: RedisTemplate<String, UploadState>,
+    private final val redisTemplate: RedisTemplate<String, UploadState>,
     private final val CHUNK_SIZE: Long = 5 * 1024 * 1024,// 5MB
-    private val log: Logger = LoggerFactory.getLogger(UploadServiceImpl::class.java)
+    private final val log: Logger = LoggerFactory.getLogger(UploadServiceImpl::class.java)
 ): UploadService {
 
     override fun initiateUpload(
@@ -100,8 +100,8 @@ class UploadServiceImpl(
         var progress = (state.uploadedChunks.toDouble() / totalChunks) * 100
 
         try {
-            if (chunkNumber !in 0..<totalChunks) {
-                throw InvalidChunkException("Invalid chunk number")
+            if (chunkNumber !in 1..totalChunks) {
+                throw InvalidChunkException("Invalid chunk number. Expected 1 to $totalChunks, got $chunkNumber")
             }
 
             val chunkKey = "uploads/temp/${state.videoId}/chunk-$chunkNumber"
@@ -137,7 +137,8 @@ class UploadServiceImpl(
                 assembleAndProcess(updatedState)
             }
 
-        } catch (exception: Exception) {
+        } catch (e: Exception) {
+            log.error("Error uploading chunk $chunkNumber for uploadId=$uploadId: ${e.message}", e)
             result = false
         }
 
@@ -183,12 +184,11 @@ class UploadServiceImpl(
     private fun assembleAndProcess(state: UploadState) {
         val finalKey = "raw/${state.videoId}/original.mp4"
 
-        val chunks = (0 until state.totalChunks).map { i ->
+        val chunks = (1..state.totalChunks).map { i ->
             "uploads/temp/${state.videoId}/chunk-$i"
         }
 
         storageService.assembleChunks(
-            sourceBucket = "raw",
             sourceKeys = chunks,
             destBucket = "raw",
             destKey = finalKey
@@ -203,11 +203,11 @@ class UploadServiceImpl(
         log.info("Assembled chunks into final video at key=$finalKey for uploadId=${state.id} in $processingTimeInMinutes minutes")
 
         metadataClient.updateVideo(
-            state.videoId,
             UpdateVideoRequest(
                 status = "PROCESSED",
                 visibility = "PUBLIC"
-            )
+            ),
+            state.videoId.toString()
         )
 
         // transcoding queue
